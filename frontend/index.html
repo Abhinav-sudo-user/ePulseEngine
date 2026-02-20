@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PulseEngine | Device Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white flex items-center justify-center min-h-screen font-sans">
+
+    <div id="screen-register" class="bg-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 block">
+        <h1 class="text-2xl font-bold mb-6 text-center text-blue-400">Initialize Device</h1>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="text-sm text-slate-400">Device Name</label>
+                <input type="text" id="device-name" placeholder="e.g., Abhinav-Node" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 mt-1 text-white font-mono focus:outline-none focus:border-blue-500 transition-colors">
+            </div>
+
+            <div>
+                <label class="text-sm text-slate-400">Generated Hardware ID</label>
+                <div id="display-id" class="bg-slate-900 p-3 rounded mt-1 font-mono text-green-400">Loading...</div>
+            </div>
+
+            <button onclick="registerDevice()" id="reg-btn" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all mt-6 shadow-lg shadow-blue-500/30">
+                Connect to PulseEngine
+            </button>
+            <p id="status-msg" class="text-center text-sm mt-2 h-4"></p>
+        </div>
+    </div>
+
+    <div id="screen-control" class="bg-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 hidden">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-blue-400">Control Panel</h1>
+            <div id="connection-status" class="px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500 text-sm font-bold flex items-center gap-2">
+                <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div> Online
+            </div>
+        </div>
+
+        <div class="bg-slate-900 p-4 rounded-xl mb-6 font-mono text-sm border border-slate-700">
+            <span class="text-slate-400">ID:</span> <span id="panel-device-id" class="text-blue-300"></span><br>
+            <span class="text-slate-400">Last Pulse:</span> <span id="last-pulse-time" class="text-green-300">Never</span>
+        </div>
+        
+        <div class="space-y-6">
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <label class="text-slate-400">Simulate Battery</label>
+                    <span id="panel-battery-val" class="font-bold text-yellow-400">85%</span>
+                </div>
+                <input type="range" id="battery-slider" min="1" max="100" value="85" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <label class="text-slate-400">Simulate Temp</label>
+                    <span id="panel-temp-val" class="font-bold text-orange-400">25°C</span>
+                </div>
+                <input type="range" id="temp-slider" min="10" max="100" value="25" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <hr class="border-slate-700">
+
+            <div>
+                <button onclick="toggleKillSwitch()" id="kill-btn" class="w-full bg-red-600 hover:bg-red-500 py-4 rounded-xl font-bold transition-all shadow-lg shadow-red-500/30 text-lg flex items-center justify-center gap-2">
+                    🛑 PULL KILL SWITCH
+                </button>
+                <p class="text-center text-xs text-slate-500 mt-2">Stops heartbeats. Dashboard will show offline after 30s.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+const API_BASE = "http://192.168.1.47:8080"; 
+const HEARTBEAT_INTERVAL_MS = 10000; // 10 seconds
+
+// --- STATE VARIABLES ---
+let randomSuffix = "";
+let finalDeviceId = "";
+let isAlive = true; 
+let pulseTimer = null;
+
+// --- BOOT SEQUENCE (Checks Memory) ---
+function initialize() {
+    let savedId = localStorage.getItem('pulse_device_id');
+    
+    if (savedId) {
+        // If it remembers who it is, skip registration!
+        finalDeviceId = savedId;
+        transitionToControlPanel();
+    } else {
+        // Otherwise, set up Screen 1
+        randomSuffix = Math.random().toString(36).substr(2, 5);
+        updateIdPreview();
+        document.getElementById('device-name').addEventListener('input', updateIdPreview);
+    }
+}
+
+function updateIdPreview() {
+    let userInput = document.getElementById('device-name').value.trim() || "Node";
+    document.getElementById('display-id').innerText = `${userInput}-${randomSuffix}`;
+}
+
+// --- REGISTRATION ---
+async function registerDevice() {
+    const btn = document.getElementById('reg-btn');
+    const msg = document.getElementById('status-msg');
+    btn.disabled = true;
+    msg.innerText = "Connecting...";
+
+    finalDeviceId = document.getElementById('display-id').innerText;
+    
+    const payload = {
+        device_id: finalDeviceId,
+        battery: 85,
+        temperature: 25,
+        status: "online"
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/api/register`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok || response.status === 409) { 
+            // Save it to browser memory permanently!
+            localStorage.setItem('pulse_device_id', finalDeviceId);
+            transitionToControlPanel();
+        } else {
+            throw new Error('Failed');
+        }
+    } catch (err) {
+        msg.className = "text-center text-sm mt-2 text-red-400";
+        msg.innerText = "❌ Connection Failed. Is the Go server running?";
+        btn.disabled = false;
+    }
+}
+
+// --- TRANSITIONS & HEARTBEAT ---
+function transitionToControlPanel() {
+    document.getElementById('screen-register').classList.replace('block', 'hidden');
+    document.getElementById('screen-control').classList.replace('hidden', 'block');
+    document.getElementById('panel-device-id').innerText = finalDeviceId;
+    
+    startHeartbeatEngine();
+}
+
+document.getElementById('battery-slider').oninput = function() {
+    document.getElementById('panel-battery-val').innerText = this.value + "%";
+};
+document.getElementById('temp-slider').oninput = function() {
+    document.getElementById('panel-temp-val').innerText = this.value + "°C";
+};
+
+function startHeartbeatEngine() {
+    sendPulse(); 
+    
+    // Clear any existing timer just in case
+    if (pulseTimer) clearInterval(pulseTimer);
+
+    pulseTimer = setInterval(() => {
+        if (isAlive) sendPulse();
+    }, HEARTBEAT_INTERVAL_MS);
+}
+
+async function sendPulse() {
+    const payload = {
+        device_id: finalDeviceId,
+        battery: parseInt(document.getElementById('battery-slider').value),
+        temperature: parseInt(document.getElementById('temp-slider').value)
+    };
+
+    try {
+        await fetch(`${API_BASE}/api/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const now = new Date();
+        document.getElementById('last-pulse-time').innerText = now.toLocaleTimeString();
+    } catch (err) {
+        console.error("Pulse Network Error");
+    }
+}
+
+// --- CONTROLS ---
+function toggleKillSwitch() {
+    const btn = document.getElementById('kill-btn');
+    const statusBadge = document.getElementById('connection-status');
+    
+    isAlive = !isAlive; 
+
+    if (isAlive) {
+        btn.className = "w-full bg-red-600 hover:bg-red-500 py-4 rounded-xl font-bold transition-all shadow-lg shadow-red-500/30 text-lg flex items-center justify-center gap-2 mt-4";
+        btn.innerHTML = "🛑 PULL KILL SWITCH";
+        
+        statusBadge.className = "px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500 text-sm font-bold flex items-center gap-2";
+        statusBadge.innerHTML = '<div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div> Online';
+        
+        sendPulse(); 
+    } else {
+        btn.className = "w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold transition-all shadow-lg shadow-green-500/30 text-lg flex items-center justify-center gap-2 mt-4";
+        btn.innerHTML = "⚡ RESTORE POWER";
+        
+        statusBadge.className = "px-3 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-500 text-sm font-bold flex items-center gap-2";
+        statusBadge.innerHTML = '<div class="w-2 h-2 bg-red-500 rounded-full"></div> Offline';
+    }
+}
+
+// Emergency reset to test as a new device
+function factoryReset() {
+    localStorage.removeItem('pulse_device_id');
+    location.reload(); // Refresh page to go back to Screen 1
+}
+
+// Boot up
+initialize();
+    </script>
+</body>
+</html>
