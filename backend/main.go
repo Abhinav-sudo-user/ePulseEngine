@@ -70,6 +70,9 @@ func main() {
 	initDB()
     initRedis()
 
+	SendSlackAlert("TEST-NODE-001")
+	go SendEmailAlert("deveshrawat2126@gmail.com", "TEST-100")
+
 	app := fiber.New()
 	app.Use(cors.New())
 
@@ -86,9 +89,8 @@ func main() {
     if err != nil {
         return c.Status(500).SendString("Server Error: Cannot find directory")
     }
-    
-    // Serve the file using the absolute, exact path
-    return c.SendFile(dir + "\\index.html") // Using Windows backslash or forward slash works
+
+    return c.SendFile(dir + "\\index.html") 
 })
 
 	app.Post("/api/register", RegisterDeviceHandler)
